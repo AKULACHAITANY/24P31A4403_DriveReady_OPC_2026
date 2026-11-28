@@ -4,7 +4,7 @@
   "metadata": {
     "colab": {
       "provenance": [],
-      "authorship_tag": "ABX9TyM2LXGROCEF0d8NvdB/QWKZ",
+      "authorship_tag": "ABX9TyNyPzgSXnB+cBtYvTYfwIuu",
       "include_colab_link": true
     },
     "kernelspec": {
@@ -28,110 +28,109 @@
     },
     {
       "cell_type": "code",
-      "execution_count": 1,
+      "execution_count": null,
       "metadata": {
-        "id": "QW77a8qxF4CQ"
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "myxYdjwiA-PF",
+        "outputId": "a450a453-2b14-4009-f147-1a39a4005c78"
       },
-      "outputs": [],
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "12 facts stored\n",
+            "['A message on the cake is free, up to 20 letters.', \"Photo cakes and custom designs need 48 hours' notice.\"]\n"
+          ]
+        }
+      ],
       "source": [
-        "!pip install -q langchain langchain-groq"
+        "!pip install -q chromadb opentelemetry-api==1.45.2 opentelemetry-sdk==1.45.2 opentelemetry-exporter-otlp-common==0.66b2\n",
+        "import chromadb\n",
+        "\n",
+        "FAQS = {\n",
+        "    \"delivery\":     \"We deliver within 5 km of the bakery. Delivery is Rs 50, free for orders above Rs 1,000.\",\n",
+        "    \"payment\":      \"We accept UPI and cash. Orders above Rs 1,000 need a 50% advance by UPI.\",\n",
+        "    \"cancellation\": \"Cancellation is free up to 12 hours before pickup. After that, the advance is not refunded.\",\n",
+        "    \"photo_cake\":   \"Photo cakes and custom designs need 48 hours' notice.\",\n",
+        "    \"notice\":       \"Regular orders need 24 hours' notice.\",\n",
+        "    \"eggless\":      \"All our cakes have eggless versions at the same price.\",\n",
+        "    \"allergens\":    \"Plum cake contains nuts and dried fruit. Cupcakes and chocolate cake are nut-free.\",\n",
+        "    \"storage\":      \"Keep cakes in the fridge and eat them within 3 days.\",\n",
+        "    \"message\":      \"A message on the cake is free, up to 20 letters.\",\n",
+        "    \"candles\":      \"Candles are free with every cake.\",\n",
+        "    \"discounts\":    \"Bulk-order discounts need the owner's approval.\",\n",
+        "    \"pickup\":       \"Pickup is during opening hours: Monday to Saturday 9 am to 8 pm, Sunday 10 am to 6 pm.\",\n",
+        "}\n",
+        "\n",
+        "client = chromadb.Client()\n",
+        "faq = client.get_or_create_collection(name=\"sweet_crumbs_faq\")\n",
+        "faq.upsert(ids=list(FAQS.keys()), documents=list(FAQS.values()))   # upsert = add or update\n",
+        "print(faq.count(), \"facts stored\")\n",
+        "print(faq.query(query_texts=[\"Can you send the cake to my house?\"], n_results=2)[\"documents\"][0])"
       ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "from langchain.tools import tool"
+      ],
+      "metadata": {
+        "id": "LFiygjbMBqgH"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "@tool\n",
+        "def search_faq(question: str) -> str:\n",
+        "    \"\"\"Search Sweet Crumbs' policies and FAQs: delivery, payment, cancellation,\n",
+        "    photo cakes, allergens, storage, candles and messages on cakes.\n",
+        "    Use for any question about rules or policies, not for prices or opening hours.\"\"\"\n",
+        "    results = faq.query(query_texts=[question], n_results=3)\n",
+        "    return \"\\n\".join(results[\"documents\"][0])"
+      ],
+      "metadata": {
+        "id": "MyNuCAhJBTV1"
+      },
+      "execution_count": null,
+      "outputs": []
     },
     {
       "cell_type": "code",
       "source": [
         "import os\n",
         "from google.colab import userdata\n",
-        "os.environ[\"GROQ_API_KEY\"] = userdata.get(\"GROQ_API_KEY\")   # LangChain reads it from here\n",
-        "\n",
         "from langchain_groq import ChatGroq\n",
-        "llm = ChatGroq(model=\"openai/gpt-oss-120b\", temperature=0.3)"
-      ],
-      "metadata": {
-        "id": "uwXiSlKCGQo3"
-      },
-      "execution_count": 2,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "from typing import Literal\n",
-        "from pydantic import BaseModel, Field\n",
         "\n",
-        "class Intent(BaseModel):\n",
-        "    intent: Literal[\"order\", \"faq\", \"other\"] = Field(\n",
-        "        description=\"order = wants to buy or book; faq = asks about prices, timings or policies; other = anything else\")\n",
+        "os.environ[\"GROQ_API_KEY\"] = userdata.get(\"GROQ_API_KEY\")\n",
         "\n",
-        "classifier = llm.with_structured_output(Intent)        # Day 4: structured output\n",
+        "llm = ChatGroq(\n",
+        "    model=\"openai/gpt-oss-20b\",\n",
+        "    temperature=0.2,\n",
+        "    max_retries=3\n",
+        ")\n",
         "\n",
-        "def handle(message: str) -> str:\n",
-        "    intent = classifier.invoke(message).intent        # 1. sort\n",
-        "    if intent == \"order\":                             # 2. route\n",
-        "        return take_order(message)\n",
-        "    elif intent == \"faq\":\n",
-        "        return answer_faq(message)\n",
-        "    else:\n",
-        "        return \"I can help with cakes, orders and our policies. What would you like?\""
-      ],
-      "metadata": {
-        "id": "c6OiL7c0GW44"
-      },
-      "execution_count": 3,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "from typing_extensions import TypedDict\n",
-        "\n",
-        "class BakeryState(TypedDict):\n",
-        "    message: str     # what the customer wrote\n",
-        "    intent: str      # filled in by the classify step\n",
-        "    reply: str       # filled in by whichever path handles it"
-      ],
-      "metadata": {
-        "id": "wbuBXtoKGYeo"
-      },
-      "execution_count": 4,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "from langgraph.graph import StateGraph, START, END\n",
-        "\n",
-        "def classify(state: BakeryState) -> dict:\n",
-        "    return {\"intent\": classifier.invoke(state[\"message\"]).intent}\n",
-        "\n",
-        "def answer_faq(state: BakeryState) -> dict:\n",
-        "    return {\"reply\": \"…answer from search_faq…\"}\n",
-        "\n",
-        "builder = StateGraph(BakeryState)          # 1. a new graph that uses our state\n",
-        "builder.add_node(\"classify\", classify)     # 2. add the steps\n",
-        "builder.add_node(\"faq\", answer_faq)\n",
-        "builder.add_edge(START, \"classify\")        # 3. connect them\n",
-        "builder.add_edge(\"classify\", \"faq\")\n",
-        "builder.add_edge(\"faq\", END)\n",
-        "graph = builder.compile()                  # 4. compile before running\n",
-        "\n",
-        "result = graph.invoke({\"message\": \"Do you deliver?\"})\n",
-        "print(result[\"reply\"])"
+        "print(\"LLM initialized successfully!\")"
       ],
       "metadata": {
         "colab": {
           "base_uri": "https://localhost:8080/"
         },
-        "id": "OnaGkuyIGdal",
-        "outputId": "5497a7b0-0a40-4a1d-d96d-1e5bb38eafa3"
+        "id": "o6UR1CNbEgtM",
+        "outputId": "ae5b5711-d046-4377-d98b-c96a70dedb69"
       },
-      "execution_count": 5,
+      "execution_count": null,
       "outputs": [
         {
           "output_type": "stream",
           "name": "stdout",
           "text": [
-            "…answer from search_faq…\n"
+            "LLM initialized successfully!\n"
           ]
         }
       ]
@@ -139,216 +138,64 @@
     {
       "cell_type": "code",
       "source": [
-        "from IPython.display import Image, display\n",
-        "display(Image(graph.get_graph().draw_mermaid_png()))     # the picture, inside Colab\n",
-        "\n",
-        "for step in graph.stream({\"message\": \"Do you deliver?\"}, stream_mode=\"updates\"):\n",
-        "    print(step)       # {'classify': {'intent': 'faq'}} then {'faq': {'reply': '...'}}"
-      ],
-      "metadata": {
-        "colab": {
-          "base_uri": "https://localhost:8080/",
-          "height": 373
-        },
-        "id": "nJeNdsKaGkgV",
-        "outputId": "11a6c74a-b617-4e43-cf43-d60d89d029c7"
-      },
-      "execution_count": 6,
-      "outputs": [
-        {
-          "output_type": "display_data",
-          "data": {
-            "image/png": "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\n",
-            "text/plain": [
-              "<IPython.core.display.Image object>"
-            ]
-          },
-          "metadata": {}
-        },
-        {
-          "output_type": "stream",
-          "name": "stdout",
-          "text": [
-            "{'classify': {'intent': 'faq'}}\n",
-            "{'faq': {'reply': '…answer from search_faq…'}}\n"
-          ]
-        }
-      ]
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "!pip install -q langgraph"
-      ],
-      "metadata": {
-        "id": "TSuKUOvEGmQu"
-      },
-      "execution_count": 7,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "import os\n",
-        "from google.colab import userdata\n",
-        "\n",
-        "# Retrieve the Groq API key from Colab Secrets (add it to the Secrets tab on the left sidebar)\n",
-        "try:\n",
-        "    os.environ[\"GROQ_API_KEY\"] = userdata.get(\"GROQ_API_KEY\")\n",
-        "except Exception:\n",
-        "    print(\"Please add GROQ_API_KEY to your Colab Secrets.\")\n",
-        "\n",
-        "# Initialize the LLM with a valid Groq model\n",
-        "llm = ChatGroq(\n",
-        "    model=\"openai/gpt-oss-120b\",\n",
-        "    temperature=0\n",
-        ")"
-      ],
-      "metadata": {
-        "id": "CegzaX-4GuSi"
-      },
-      "execution_count": 8,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "\n",
-        "from typing import Literal\n",
-        "from typing_extensions import TypedDict\n",
-        "from pydantic import BaseModel, Field\n",
-        "from langgraph.graph import StateGraph, START, END\n",
-        "from langchain.agents import create_agent\n",
-        "\n",
-        "class BakeryState(TypedDict):\n",
-        "    message: str\n",
-        "    intent: str\n",
-        "    reply: str\n",
-        "\n",
-        "class Intent(BaseModel):\n",
-        "    intent: Literal[\"order\", \"faq\", \"other\"] = Field(\n",
-        "        description=\"order = wants to buy or book cakes; faq = asks about prices, timings or \"\n",
-        "                    \"policies; other = greetings or anything unrelated to the bakery\")\n",
-        "\n",
-        "classifier = llm.with_structured_output(Intent)"
-      ],
-      "metadata": {
-        "id": "ccSQuPQlGwZX"
-      },
-      "execution_count": 9,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
         "from langchain.tools import tool\n",
-        "\n",
-        "FAQS = [\n",
-        "    {\n",
-        "        \"question\": \"Do you provide home delivery?\",\n",
-        "        \"answer\": \"Add your bakery's verified delivery policy here.\"\n",
-        "    },\n",
-        "    {\n",
-        "        \"question\": \"Does plum cake contain nuts?\",\n",
-        "        \"answer\": \"Add the verified allergen information here.\"\n",
-        "    },\n",
-        "    {\n",
-        "        \"question\": \"Can I cancel my cake order?\",\n",
-        "        \"answer\": \"Add your verified cancellation policy here.\"\n",
-        "    }\n",
-        "]\n",
-        "\n",
-        "@tool\n",
-        "def search_faq(question: str) -> str:\n",
-        "    \"\"\"Search the bakery FAQ knowledge base for policy-related questions.\"\"\"\n",
-        "\n",
-        "    question_words = set(question.lower().split())\n",
-        "\n",
-        "    best_match = None\n",
-        "    best_score = 0\n",
-        "\n",
-        "    for faq in FAQS:\n",
-        "        faq_words = set(\n",
-        "            (faq[\"question\"] + \" \" + faq[\"answer\"]).lower().split()\n",
-        "        )\n",
-        "\n",
-        "        score = len(question_words & faq_words)\n",
-        "\n",
-        "        if score > best_score:\n",
-        "            best_score = score\n",
-        "            best_match = faq\n",
-        "\n",
-        "    if best_match is None or best_score == 0:\n",
-        "        return \"NO_RELEVANT_FAQ_FOUND\"\n",
-        "\n",
-        "    return f\"Question: {best_match['question']}\\nAnswer: {best_match['answer']}\""
-      ],
-      "metadata": {
-        "id": "sS14_UhcHJll"
-      },
-      "execution_count": 11,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "from langchain.tools import tool\n",
-        "\n",
-        "MENU = {\n",
-        "    \"plum cake\": 500,\n",
-        "    \"chocolate cake\": 650,\n",
-        "    \"cupcake\": 80\n",
-        "}\n",
         "\n",
         "@tool\n",
         "def get_price(item: str, qty: int = 1) -> str:\n",
-        "    \"\"\"Get the price and total cost of bakery items.\"\"\"\n",
+        "    \"\"\"Get the total price in rupees for a menu item.\"\"\"\n",
         "\n",
-        "    item = item.lower().strip()\n",
+        "    price = MENU.get(item.lower().strip())\n",
         "\n",
-        "    if item not in MENU:\n",
-        "        return \"Sorry, this item is not available in our menu.\"\n",
+        "    if price is None:\n",
+        "        return f\"{item} is not on the menu.\"\n",
         "\n",
-        "    total = MENU[item] * qty\n",
-        "\n",
-        "    return f\"{item} price: Rs {MENU[item]}, Quantity: {qty}, Total: Rs {total}\""
+        "    return f\"{qty} x {item} = Rs {price * qty}\""
       ],
       "metadata": {
-        "id": "Nw089uWnHRn-"
+        "id": "F6Rf3lT1E25t"
       },
-      "execution_count": 13,
+      "execution_count": null,
       "outputs": []
     },
     {
       "cell_type": "code",
       "source": [
         "from langchain.tools import tool\n",
-        "\n",
-        "HOURS = {\n",
-        "    \"monday\": \"9 AM - 8 PM\",\n",
-        "    \"tuesday\": \"9 AM - 8 PM\",\n",
-        "    \"wednesday\": \"9 AM - 8 PM\",\n",
-        "    \"thursday\": \"9 AM - 8 PM\",\n",
-        "    \"friday\": \"9 AM - 8 PM\",\n",
-        "    \"saturday\": \"9 AM - 8 PM\",\n",
-        "    \"sunday\": \"10 AM - 6 PM\"\n",
-        "}\n",
         "\n",
         "@tool\n",
         "def is_open(day: str) -> str:\n",
-        "    \"\"\"Check Sweet Crumbs Home Bakery opening hours for a given day.\"\"\"\n",
+        "    \"\"\"Check bakery opening hours for a day of the week.\"\"\"\n",
         "\n",
-        "    day = day.lower().strip()\n",
+        "    hours = HOURS.get(day.lower().strip())\n",
         "\n",
-        "    if day not in HOURS:\n",
-        "        return \"Please provide a valid day of the week.\"\n",
+        "    if hours:\n",
+        "        return f\"Open {hours} on {day}.\"\n",
         "\n",
-        "    return f\"Sweet Crumbs is open on {day.capitalize()} from {HOURS[day]}.\""
+        "    return f\"{day} is not a valid day of the week.\""
       ],
       "metadata": {
-        "id": "NNMfj-0rHXu6"
+        "id": "vzaz6us3FCmS"
       },
-      "execution_count": 15,
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "HOURS = {\n",
+        "    \"monday\": \"9 am to 8 pm\",\n",
+        "    \"tuesday\": \"9 am to 8 pm\",\n",
+        "    \"wednesday\": \"9 am to 8 pm\",\n",
+        "    \"thursday\": \"9 am to 8 pm\",\n",
+        "    \"friday\": \"9 am to 8 pm\",\n",
+        "    \"saturday\": \"9 am to 8 pm\",\n",
+        "    \"sunday\": \"10 am to 6 pm\"\n",
+        "}"
+      ],
+      "metadata": {
+        "id": "sHp1Jd6kFFzq"
+      },
+      "execution_count": null,
       "outputs": []
     },
     {
@@ -357,8 +204,14 @@
         "from langchain.tools import tool\n",
         "\n",
         "@tool\n",
-        "def log_order(name: str, item: str, qty: int, date: str, eggless: bool) -> str:\n",
-        "    \"\"\"Save a customer cake order to Google Sheets.\"\"\"\n",
+        "def log_order(\n",
+        "    name: str,\n",
+        "    item: str,\n",
+        "    qty: int,\n",
+        "    date: str,\n",
+        "    eggless: bool\n",
+        ") -> str:\n",
+        "    \"\"\"Save a confirmed cake order to Google Sheets.\"\"\"\n",
         "\n",
         "    try:\n",
         "        order = Order(\n",
@@ -369,149 +222,78 @@
         "            eggless=eggless\n",
         "        )\n",
         "\n",
-        "        total = MENU[order.item] * order.qty\n",
-        "\n",
-        "        ws.append_row([\n",
-        "            order.name,\n",
-        "            order.item,\n",
-        "            order.qty,\n",
-        "            order.date,\n",
-        "            \"yes\" if order.eggless else \"no\",\n",
-        "            total\n",
-        "        ])\n",
-        "\n",
-        "        return f\"Order saved successfully! Total: Rs {total}\"\n",
-        "\n",
         "    except Exception as e:\n",
-        "        return f\"Could not save order: {e}\""
+        "        return f\"Could not save order: {e}\"\n",
+        "\n",
+        "    total = MENU[order.item] * order.qty\n",
+        "\n",
+        "    ws.append_row([\n",
+        "        order.name,\n",
+        "        order.item,\n",
+        "        order.qty,\n",
+        "        order.date,\n",
+        "        \"yes\" if order.eggless else \"no\",\n",
+        "        total\n",
+        "    ])\n",
+        "\n",
+        "    return (\n",
+        "        f\"Saved: {order.qty} x {order.item} \"\n",
+        "        f\"for {order.name} on {order.date}, Rs {total}.\"\n",
+        "    )"
       ],
       "metadata": {
-        "id": "d5nCSpacHevv"
+        "id": "GiaM9a5xFP4d"
       },
-      "execution_count": 17,
+      "execution_count": null,
       "outputs": []
     },
     {
       "cell_type": "code",
       "source": [
-        "FAQ_PROMPT = \"\"\"You answer questions for Sweet Crumbs Home Bakery.\n",
-        "Use get_price for prices, is_open for timings and search_faq for policies. Never guess.\n",
-        "If the answer isn't found, say \"I'll check with the owner.\" Under 50 words.\"\"\"\n",
+        "from langgraph.checkpoint.memory import InMemorySaver\n",
+        "from langchain.agents import create_agent\n",
         "\n",
-        "ORDER_PROMPT = \"\"\"You take cake orders for Sweet Crumbs Home Bakery.\n",
-        "Use get_price for totals. Before log_order, make sure you have name, item, quantity and\n",
-        "pickup date; ask for anything missing. After saving, read the order back. Under 60 words.\"\"\"\n",
+        "SYSTEM = \"\"\"ROLE:   You are the friendly assistant for Sweet Crumbs Home Bakery.\n",
+        "RULES:  Use get_price for prices and is_open for timings; never guess them.\n",
+        "        For any policy question, use search_faq and answer ONLY from what it returns.\n",
+        "        If the answer isn't there, say \"I'll check with the owner.\"\n",
+        "        Before log_order, make sure you have name, item, quantity and pickup date; ask if missing.\n",
+        "FORMAT: Under 60 words, friendly, English or Telugu matching the customer.\"\"\"\n",
         "\n",
-        "faq_agent = create_agent(model=llm, tools=[search_faq, get_price, is_open], system_prompt=FAQ_PROMPT)\n",
-        "order_agent = create_agent(model=llm, tools=[get_price, log_order], system_prompt=ORDER_PROMPT)"
-      ],
-      "metadata": {
-        "id": "DaNT9UwDG4or"
-      },
-      "execution_count": 18,
-      "outputs": []
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "def classify(state: BakeryState) -> dict:\n",
-        "    return {\"intent\": classifier.invoke(state[\"message\"]).intent}\n",
+        "agent = create_agent(model=llm, tools=[get_price, is_open, log_order, search_faq],\n",
+        "                     system_prompt=SYSTEM, checkpointer=InMemorySaver())\n",
         "\n",
-        "def ask_agent(agent, message: str) -> str:\n",
-        "    result = agent.invoke({\"messages\": [{\"role\": \"user\", \"content\": message}]})\n",
-        "    return result[\"messages\"][-1].content\n",
+        "def chat(thread_id: str, text: str) -> str:\n",
+        "    config = {\"configurable\": {\"thread_id\": thread_id}}\n",
+        "    try:\n",
+        "        result = agent.invoke({\"messages\": [{\"role\": \"user\", \"content\": text}]}, config)\n",
+        "        return result[\"messages\"][-1].content\n",
+        "    except Exception as e:\n",
+        "        print(\"Agent error:\", e)\n",
+        "        return \"Sorry, I'm a little busy. Please try again in a minute.\"\n",
         "\n",
-        "def answer_faq(state: BakeryState) -> dict:\n",
-        "    return {\"reply\": ask_agent(faq_agent, state[\"message\"])}\n",
-        "\n",
-        "def take_order(state: BakeryState) -> dict:\n",
-        "    return {\"reply\": ask_agent(order_agent, state[\"message\"])}\n",
-        "\n",
-        "def other(state: BakeryState) -> dict:\n",
-        "    return {\"reply\": \"Hello from Sweet Crumbs! I can help with cakes, prices, orders and our policies.\"}\n",
-        "\n",
-        "def route(state: BakeryState) -> str:\n",
-        "    return state[\"intent\"]\n",
-        "\n",
-        "builder = StateGraph(BakeryState)\n",
-        "builder.add_node(\"classify\", classify)\n",
-        "builder.add_node(\"faq\", answer_faq)\n",
-        "builder.add_node(\"order\", take_order)\n",
-        "builder.add_node(\"other\", other)\n",
-        "builder.add_edge(START, \"classify\")\n",
-        "builder.add_conditional_edges(\"classify\", route, {\"order\": \"order\", \"faq\": \"faq\", \"other\": \"other\"})\n",
-        "builder.add_edge(\"faq\", END)\n",
-        "builder.add_edge(\"order\", END)\n",
-        "builder.add_edge(\"other\", END)\n",
-        "graph = builder.compile()\n",
-        "\n",
-        "from IPython.display import Image, display\n",
-        "display(Image(graph.get_graph().draw_mermaid_png()))"
-      ],
-      "metadata": {
-        "colab": {
-          "base_uri": "https://localhost:8080/",
-          "height": 338
-        },
-        "id": "YwSpfQE_HlWr",
-        "outputId": "7b864293-5121-40d8-f08b-178d75afe85a"
-      },
-      "execution_count": 19,
-      "outputs": [
-        {
-          "output_type": "display_data",
-          "data": {
-            "image/png": "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\n",
-            "text/plain": [
-              "<IPython.core.display.Image object>"
-            ]
-          },
-          "metadata": {}
-        }
-      ]
-    },
-    {
-      "cell_type": "code",
-      "source": [
-        "tests = [\"Do you deliver to my area?\",\n",
-        "         \"I'm Ravi, book 2 eggless plum cakes for 24 Dec\",\n",
-        "         \"Good morning!\",\n",
-        "         \"Is the plum cake nut-free?\"]\n",
-        "\n",
-        "for msg in tests:\n",
-        "    print(\"\\nCustomer:\", msg)\n",
-        "    for step in graph.stream({\"message\": msg}, stream_mode=\"updates\"):\n",
-        "        print(\"  \", step)"
+        "print(chat(\"ravi\", \"Hi, I'm Ravi. Do you deliver? My order is about Rs 1,300.\"))\n",
+        "print(chat(\"ravi\", \"Does the plum cake have nuts?\"))\n",
+        "print(chat(\"sravani\", \"Can I cancel tomorrow morning if I pick up tomorrow evening?\"))\n",
+        "print(chat(\"ravi\", \"What's my name, and will I pay for delivery?\"))   # memory + RAG together"
       ],
       "metadata": {
         "colab": {
           "base_uri": "https://localhost:8080/"
         },
-        "id": "8qX9P7qvHm9J",
-        "outputId": "8bed24c5-abc5-4fc7-c305-02f5bcdebd03"
+        "id": "J7AUvlXkDaCF",
+        "outputId": "5fa30f2a-e9a8-430a-b96e-a29b2be4b54c"
       },
-      "execution_count": 20,
+      "execution_count": null,
       "outputs": [
         {
           "output_type": "stream",
           "name": "stdout",
           "text": [
-            "\n",
-            "Customer: Do you deliver to my area?\n",
-            "   {'classify': {'intent': 'faq'}}\n",
-            "   {'faq': {'reply': 'I’ll check with the owner.'}}\n",
-            "\n",
-            "Customer: I'm Ravi, book 2 eggless plum cakes for 24 Dec\n",
-            "   {'classify': {'intent': 'order'}}\n",
-            "   {'order': {'reply': 'Ravi, you’d like 2\\u202fegg‑less plum cakes for pickup on\\u202f24\\u202fDec. Could you confirm the pickup date in\\u202fYYYY‑MM‑DD\\u202fformat?'}}\n",
-            "\n",
-            "Customer: Good morning!\n",
-            "   {'classify': {'intent': 'other'}}\n",
-            "   {'other': {'reply': 'Hello from Sweet Crumbs! I can help with cakes, prices, orders and our policies.'}}\n",
-            "\n",
-            "Customer: Is the plum cake nut-free?\n",
-            "   {'classify': {'intent': 'faq'}}\n",
-            "   {'faq': {'reply': \"I'll check with the owner.\"}}\n"
+            "Hi Ravi! Yes, we deliver within 5 km of the bakery. Delivery is Rs 50, but it’s free for orders above Rs 1,000. Just give us a 24‑hour notice. Let me know your address and pickup date, and we’ll get it ready!\n",
+            "Yes, our plum cake contains nuts and dried fruit. If you need a nut‑free option, we can suggest cupcakes or chocolate cake instead. Let me know how I can help!\n",
+            "Sure! You can cancel for free if you do it at least 12 hours before your pickup time. If it’s within 12 hours, the advance won’t be refunded. Let me know if you’d like to cancel.\n",
+            "Your name is Ravi, and since your order is above Rs 1,000, delivery is free!\n"
           ]
         }
       ]
